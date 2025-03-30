@@ -1,0 +1,63 @@
+library(shiny)
+library(DT)
+library(dplyr)
+
+# Function to get running processes
+get_processes <- function() {
+  process_data <- system("tasklist /FO CSV /NH", intern = TRUE)  # Get process list as CSV
+  process_df <- read.csv(text = process_data, stringsAsFactors = FALSE, header = FALSE)
+  
+  # Rename columns properly
+  colnames(process_df) <- c("Image Name", "PID", "Session Name", "Session#", "Memory Usage")
+  
+  # Convert PID to numeric, removing any non-numeric values
+  process_df$PID <- as.numeric(process_df$PID)
+  process_df <- process_df[!is.na(process_df$PID), ]  # Remove rows where PID is NA
+  
+  return(process_df)
+}
+
+ui <- fluidPage(
+  titlePanel("Process Monitor"),
+  sidebarLayout(
+    sidebarPanel(
+      numericInput("pid", "Enter Process ID (PID) to Kill:", value = NULL, min = 1),
+      actionButton("kill", "Kill Process"),
+      helpText("Enter the PID of a process to terminate it.")
+    ),
+    mainPanel(
+      DTOutput("process_table"),
+      verbatimTextOutput("message")  # Output messages
+    )
+  )
+)
+
+server <- function(input, output, session) {
+  processes <- reactiveVal(get_processes())  # Store process list reactively
+  
+  output$process_table <- renderDT({
+    datatable(processes(), options = list(pageLength = 10))
+  })
+  
+  observeEvent(input$kill, {
+    req(input$pid)  # Ensure PID is entered
+    
+    current_processes <- processes()
+    
+    if (!(input$pid %in% current_processes$PID)) {
+      output$message <- renderText("Error: PID not found!")
+      return()
+    }
+    
+    # Kill process (Windows command)
+    system(paste("taskkill /PID", input$pid, "/F"), intern = TRUE)
+    
+    # Update process list after termination
+    new_processes <- get_processes()
+    processes(new_processes)
+    
+    output$message <- renderText(paste("Process", input$pid, "has been terminated!"))
+  })
+}
+
+shinyApp(ui, server)
